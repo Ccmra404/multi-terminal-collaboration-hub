@@ -68,6 +68,29 @@ def project_config(root, prompt=None):
 
 
 class ProjectCodexExecutorTests(unittest.TestCase):
+    def test_empty_dynamic_plan_file_is_a_valid_idle_queue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plans_path = root / "plans.json"
+            plans_path.write_text(
+                json.dumps({"schema_version": 1, "plans": {}}), encoding="utf-8"
+            )
+            config_path = root / "config.json"
+            value = project_config(root)
+            value["codex_path"] = str(root / "codex")
+            value["plans"] = {}
+            value["plans_file"] = str(plans_path)
+            config_path.write_text(json.dumps(value), encoding="utf-8")
+
+            store = project_codex_executor.task_dispatch.DispatchStore(root / "dispatch.json")
+            result = project_codex_executor.run_next_project_task(store, config_path)
+
+            self.assertEqual(result["selected_task_id"], "")
+            self.assertEqual(
+                result["reason"],
+                "no pending server task with an exact trusted project plan",
+            )
+
     def test_plan_loader_requires_trusted_exact_repository_and_safe_test(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
