@@ -11,6 +11,7 @@ Codex child environment and Issue text is never interpreted as a command.
 from __future__ import print_function
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -50,13 +51,18 @@ MAX_COMMAND_OUTPUT = 6000
 CHECK_TIMEOUT_SECONDS = 180
 CHECK_POLL_SECONDS = 5
 CHECK_PENDING = frozenset(("queued", "in_progress", "pending"))
-SAFE_TEST_PREFIX = ("python3", "-m", "unittest")
+SAFE_TEST_PREFIXES = (("python3", "-m", "unittest"), ("node", "--test"))
+DEFAULT_ALLOWED_PATH_PATTERNS = ("tools/**", "tests/**", "docs/**", "web/status/**", "README*", "LICENSE*")
 INTERNAL_PATH_PREFIXES = ("__pycache__/", ".pytest_cache/", ".mypy_cache/")
 INTERNAL_PATHS = frozenset((".codex-executor.lock",))
 SAFE_PROMPT_BLOCK = re.compile(
     r"(?i)(?:\b(?:token|password|secret|root|sudo|ssh|production|deploy|deployment|"
     r"firewall|release|merge|device|credential|authorization)\b|/etc/|/root/|"
     r"~/.ssh|public\s+internet|external\s+network|issue\s+body|shell\s+command)"
+)
+SENSITIVE_PATH_RE = re.compile(
+    r"(?i)(?:^|/)(?:config|deploy|deployment|secrets?|credentials?|\.github/workflows)(?:/|$)|"
+    r"(?:^|/)(?:security\.md|\.env(?:\.|$))"
 )
 REMOTE_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\.git$")
 BRANCH_RE = re.compile(r"^codex/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
@@ -131,17 +137,33 @@ def _safe_prompt(value):
 
 
 def _validate_test_command(value):
-    if not isinstance(value, list) or len(value) < 3 or len(value) > 16:
+    if not isinstance(value, list) or len(value) < 2 or len(value) > 16:
         raise ProjectExecutorError("test_command must be a bounded argv list")
     normalized = [_clean(item, 120) for item in value]
-    if tuple(normalized[:3]) != SAFE_TEST_PREFIX:
-        raise ProjectExecutorError("test_command must use python3 -m unittest")
+    if not any(tuple(normalized[:len(prefix)]) == prefix for prefix in SAFE_TEST_PREFIXES):
+        raise ProjectExecutorError("test_command must use an allowlisted Python or Node test runner")
     for item in normalized:
         if not item or any(token in item for token in (";", "&&", "||", "`", "$(", "|")):
             raise ProjectExecutorError("test_command contains shell syntax")
         if not re.fullmatch(r"[A-Za-z0-9_./*=-]+", item):
             raise ProjectExecutorError("test_command contains unsupported characters")
     return tuple(normalized)
+
+
+def _validate_path_patterns(value):
+    if value is None:
+        return DEFAULT_ALLOWED_PATH_PATTERNS
+    if not isinstance(value, list) or not value or len(value) > 20:
+        raise ProjectExecutorError("allowed_path_patterns must be a bounded non-empty list")
+    result = []
+    for item in value:
+        pattern = _clean(item, 160).replace("\\", "/").strip()
+        if (not pattern or pattern.startswith("/") or ".." in pattern.split("/")
+                or SENSITIVE_PATH_RE.search(pattern) or not re.fullmatch(r"[A-Za-z0-9_./*-]+", pattern)):
+            raise ProjectExecutorError("allowed_path_patterns contains an unsafe pattern")
+        if pattern not in result:
+            result.append(pattern)
+    return tuple(result)
 
 
 def _validate_repository(repository, raw):
@@ -158,10 +180,16 @@ def _validate_repository(repository, raw):
     main_branch = _safe_text(raw.get("main_branch"), "repository main_branch", 100)
     if main_branch != "main":
         raise ProjectExecutorError("only main is supported as the base branch")
+    allowed_patterns = _validate_path_patterns(raw.get("allowed_path_patterns"))
+    test_command = _validate_test_command(raw.get("test_command", [
+        "python3", "-m", "unittest", "discover", "-s", "tests", "-v"
+    ]))
     return {
         "remote": remote,
         "mirror": mirror_path,
         "main_branch": main_branch,
+        "allowed_path_patterns": allowed_patterns,
+        "test_command": test_command,
     }
 
 
@@ -191,6 +219,8 @@ def _validate_plan(task_id, raw, repositories):
     allowed_paths = []
     for item in paths:
         normalized = _safe_relative_path(item)
+        if not any(fnmatch.fnmatchcase(normalized, pattern) for pattern in repositories[repository]["allowed_path_patterns"]):
+            raise ProjectExecutorError("plan path is outside the configured safe path allowlist")
         if normalized not in allowed_paths:
             allowed_paths.append(normalized)
     test_command = _validate_test_command(raw.get("test_command"))

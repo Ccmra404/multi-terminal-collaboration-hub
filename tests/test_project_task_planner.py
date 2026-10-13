@@ -58,6 +58,50 @@ class ProjectTaskPlannerTests(unittest.TestCase):
         with self.assertRaises(project_task_planner.TaskNotEligibleError):
             project_task_planner.parse_standard_task(task_issue(invalid), REPO)
 
+    def test_trusted_plain_issue_uses_repository_allowlist_and_fixed_tests(self):
+        issue = {
+            "number": 23, "title": "Improve the status cards", "body": "Keep the current UI and add a test.",
+            "author_association": "COLLABORATOR", "labels": [],
+        }
+        policy = {
+            "allowed_path_patterns": ("web/status/**", "tests/**"),
+            "test_command": ("node", "--test", "tests/*.test.cjs"),
+        }
+        task = project_task_planner.parse_standard_task(issue, REPO, repository_policy=policy)
+        self.assertEqual(task["allowed_paths"], ("web/status/**", "tests/**"))
+        self.assertEqual(task["test_command"], ("node", "--test", "tests/*.test.cjs"))
+        with self.assertRaises(project_task_planner.TaskNotEligibleError):
+            project_task_planner.parse_standard_task(dict(issue, author_association="NONE"), REPO, repository_policy=policy)
+
+    def test_riskier_bounded_plan_is_available_for_explicit_approval(self):
+        task = project_task_planner.parse_standard_task({
+            "number": 23, "title": "Add a scoped dashboard test", "body": "Create a focused UI test.",
+            "author_association": "OWNER", "labels": [],
+        }, REPO, repository_policy={
+            "allowed_path_patterns": ("web/status/**", "tests/**"),
+            "test_command": ("node", "--test", "tests/*.test.cjs"),
+        })
+        output = {
+            "summary": "Review a bounded status-page change", "allowed_paths": ["web/status/app.js"],
+            "test_command": list(task["test_command"]), "risk": "medium",
+        }
+        parsed = project_task_planner._parse_plan_output(json.dumps(output), task)
+        self.assertEqual(parsed["risk"], "medium")
+        self.assertEqual(parsed["allowed_paths"], ("web/status/app.js",))
+
+    def test_safety_control_changes_require_maintainer_approval_even_if_model_says_low(self):
+        block = valid_block()
+        block["allowed_paths"] = ["tools/project_task_planner.py"]
+        task = project_task_planner.parse_standard_task(task_issue(block), REPO)
+        output = {
+            "summary": "Update planner behavior",
+            "allowed_paths": ["tools/project_task_planner.py"],
+            "test_command": list(task["test_command"]),
+            "risk": "low",
+        }
+        parsed = project_task_planner._parse_plan_output(json.dumps(output), task)
+        self.assertEqual(parsed["risk"], "high")
+
     def test_sensitive_goal_path_and_test_are_blocked(self):
         invalid = valid_block()
         invalid["goal"] = "change the deployment credentials"

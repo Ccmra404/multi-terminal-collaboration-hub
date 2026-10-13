@@ -1,20 +1,20 @@
 {
   "repositories": [
     {
-      "repository": "example/managed-project",
-      "coordination_issue": 9,
+      "repository": "Ccmra404/multi-terminal-collaboration-hub",
+      "coordination_issue": 0,
       "task_issue_numbers": [],
       "main_branch": "main",
-      "authorized_handoff_users": [],
+      "authorized_handoff_users": ["Ccmra404"],
       "token_env": "GH_TOKEN_ADBLOCK_PRO"
     },
     {
-      "repository": "example/second-private-repo",
-      "coordination_issue": 1,
+      "repository": "Ccmra404/AdBlock-Pro-next",
+      "coordination_issue": 0,
       "task_issue_numbers": [],
       "main_branch": "main",
-      "authorized_handoff_users": [],
-      "token_env": "GH_TOKEN_SECOND_REPO"
+      "authorized_handoff_users": ["Ccmra404"],
+      "token_env": "GH_TOKEN_ADBLOCK_PRO"
     }
   ],
   "api_base": "https://api.github.com",

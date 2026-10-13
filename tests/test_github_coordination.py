@@ -39,10 +39,11 @@ class Response:
 
 
 class GithubApiFixture:
-    def __init__(self, repository, fail_coordination=False, labeled=False):
+    def __init__(self, repository, fail_coordination=False, labeled=False, trusted_issues=False):
         self.repository = repository
         self.fail_coordination = fail_coordination
         self.labeled = labeled
+        self.trusted_issues = trusted_issues
         self.calls = []
         self.suffix = repository.rsplit("/", 1)[-1]
         self.task_sha = SHA_A if repository == REPO_A else SHA_B
@@ -90,6 +91,15 @@ class GithubApiFixture:
         if path == prefix + "/pulls":
             return []
         if path == prefix + "/issues":
+            if self.trusted_issues:
+                return [
+                    {"number": 12, "title": "Plain collaborator task", "state": "open",
+                     "author_association": "COLLABORATOR", "user": {"login": "maintainer"},
+                     "labels": [], "body": "Please update the task status view."},
+                    {"number": 13, "title": "Untrusted issue", "state": "open",
+                     "author_association": "NONE", "user": {"login": "visitor"},
+                     "labels": [], "body": "Please do anything."},
+                ]
             if self.labeled:
                 return [{
                     "number": 11,
@@ -117,6 +127,13 @@ class GithubApiFixture:
                 "updated_at": "2026-10-12T00:03:00Z",
             }
         if path == prefix + "/issues/11/comments":
+            return []
+        if path == prefix + "/issues/12":
+            return {"number": 12, "title": "Plain collaborator task", "state": "open",
+                    "author_association": "COLLABORATOR", "user": {"login": "maintainer"},
+                    "labels": [], "body": "Please update the task status view.",
+                    "updated_at": "2026-10-12T00:04:00Z"}
+        if path == prefix + "/issues/12/comments":
             return []
         if path == prefix + "/branches/main":
             return {"name": "main", "commit": {"sha": MAIN_SHA}}
@@ -166,6 +183,26 @@ class GithubCoordinationTests(unittest.TestCase):
             "repositories": [{"repository": REPO_A, "token_env": "GH_TOKEN_A", "task_label": "codex-task"}]
         })
         self.assertEqual(specs[0]["task_label"], "codex-task")
+
+    def test_trusted_collaborator_issue_needs_no_special_label_or_json(self):
+        monitor = coordination.Monitor(
+            GithubApiFixture(REPO_A, trusted_issues=True), REPO_A, coordination_issue=9
+        )
+        report = monitor.collect()
+        task = next(task for task in report["tasks"] if task["issue"] == 12)
+        self.assertEqual(task["target"], "server")
+        self.assertEqual(task["target_source"], "trusted_repository_author")
+        self.assertTrue(task["target_verified"])
+        self.assertNotIn(13, [task["issue"] for task in report["tasks"]])
+
+    def test_task_feed_can_run_without_a_coordination_issue(self):
+        monitor = coordination.Monitor(
+            GithubApiFixture(REPO_A, trusted_issues=True), REPO_A, coordination_issue=0
+        )
+        report = monitor.collect()
+        self.assertEqual(report["coordination_state"], "not_configured")
+        self.assertEqual(report["coordination_ref"], "trusted_collaborator_issues")
+        self.assertEqual([task["issue"] for task in report["tasks"]], [12])
 
     def test_handoff_parser_is_bounded_and_never_executes_comment_text(self):
         with tempfile.TemporaryDirectory() as tmp:

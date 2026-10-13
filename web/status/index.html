@@ -12,10 +12,25 @@
   <div class="app">
     <header class="topbar">
       <a class="brand" href="#top">多端协作中心</a>
-      <button id="refresh" class="refresh" type="button">刷新</button>
+      <div class="account-controls">
+        <span id="account-name" class="account-name hidden"></span>
+        <button id="logout" class="refresh hidden" type="button">退出</button>
+        <button id="refresh" class="refresh" type="button">刷新</button>
+      </div>
     </header>
 
-    <main id="top">
+    <section id="login-view" class="login-view hidden" aria-labelledby="login-heading">
+      <form id="login-form" class="login-card" autocomplete="on">
+        <h1 id="login-heading">登录协作中心</h1>
+        <p>登录后查看任务进度与待确认事项。</p>
+        <label>用户名<input id="login-username" name="username" autocomplete="username" required></label>
+        <label>密码<input id="login-password" name="password" type="password" autocomplete="current-password" required></label>
+        <button id="login-submit" class="primary-button" type="submit">登录</button>
+        <p id="login-error" class="form-error" role="alert" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <main id="top" class="hidden">
       <section class="intro">
         <div>
           <h1>协作总览</h1>
@@ -35,6 +50,17 @@
           <div id="owners" class="owners">
             <div class="skeleton">正在加载任务概览…</div>
           </div>
+        </div>
+      </section>
+
+      <section id="approvals-section" class="section approvals-section hidden" aria-labelledby="approvals-heading">
+        <div class="approval-panel">
+          <div class="section-head">
+            <h2 id="approvals-heading">待维护者确认</h2>
+            <span id="approval-count" class="count">0</span>
+          </div>
+          <p class="approval-intro">确认只适用于下方列出的单项代码计划，且仅能使用一次。</p>
+          <div id="approvals" class="approval-list" aria-live="polite"></div>
         </div>
       </section>
 

@@ -10,12 +10,16 @@
     "example/coordination-hub": {
       "remote": "https://github.com/example/coordination-hub.git",
       "mirror": "/var/lib/collaboration-hub/repositories/Collaboration-Hub",
-      "main_branch": "main"
+      "main_branch": "main",
+      "allowed_path_patterns": ["tools/**", "tests/**", "docs/**", "web/status/**", "README*"],
+      "test_command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"]
     },
     "example/managed-project": {
       "remote": "https://github.com/example/managed-project.git",
       "mirror": "/var/lib/collaboration-hub/repositories/managed-project",
-      "main_branch": "main"
+      "main_branch": "main",
+      "allowed_path_patterns": ["tools/**", "tests/**", "docs/**", "web/status/**", "README*"],
+      "test_command": ["node", "--test", "tests/*.test.mjs"]
     }
   },
   "plans": {

@@ -42,6 +42,8 @@ SCHEMA_VERSION = 1
 ALLOWED_REPOSITORIES = frozenset((
     "example/coordination-hub",
     "example/managed-project",
+    "Ccmra404/multi-terminal-collaboration-hub",
+    "Ccmra404/AdBlock-Pro-next",
 ))
 TARGETS = frozenset(("server", "computer", "mobile"))
 ACTORS = TARGETS
