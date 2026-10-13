@@ -216,7 +216,9 @@ class ProjectTaskPlannerTests(unittest.TestCase):
                 "timeout_seconds": 120,
             }
             path.write_text(json.dumps(value), encoding="utf-8")
-            self.assertEqual(project_task_planner.load_planner_config(path)["task_label"], "codex-task")
+            loaded = project_task_planner.load_planner_config(path)
+            self.assertEqual(loaded["task_label"], "codex-task")
+            self.assertEqual(loaded["approval_file"], Path(project_task_planner.DEFAULT_APPROVAL_FILE))
             value["task_label"] = "unsafe label with spaces"
             path.write_text(json.dumps(value), encoding="utf-8")
             with self.assertRaises(project_task_planner.PlannerError):

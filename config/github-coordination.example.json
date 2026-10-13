@@ -6,7 +6,7 @@
       "task_issue_numbers": [],
       "main_branch": "main",
       "authorized_handoff_users": ["Ccmra404"],
-      "token_env": "GH_TOKEN_ADBLOCK_PRO"
+      "token_env": "GH_TOKEN_PROJECT_COLLAB_HUB"
     },
     {
       "repository": "Ccmra404/AdBlock-Pro-next",
@@ -23,6 +23,6 @@
   "max_retries": 3,
   "max_pages": 3,
   "poll_interval_seconds": 300,
-  "state_file": "/var/lib/collaboration-hub/github-coordination/state.json",
-  "report_file": "/var/lib/collaboration-hub/github-coordination/report.json"
+  "state_file": "/var/lib/project-collab-hub/github-coordination/state.json",
+  "report_file": "/var/lib/project-collab-hub/github-coordination/report.json"
 }
