@@ -314,8 +314,6 @@ def load_project_config(path):
             if task_id in plans:
                 raise ProjectExecutorError("static and dynamic plans overlap")
             plans[task_id] = plan
-    if not plans:
-        raise ProjectExecutorError("plans or plans_file must provide at least one plan")
     return {
         "schema_version": CONFIG_SCHEMA_VERSION,
         "executor": CONFIG_EXECUTOR,
