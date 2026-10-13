@@ -43,7 +43,12 @@ def _b64(value):
 
 
 def _unb64(value):
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    if not isinstance(value, str) or any(char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for char in value):
+        raise ValueError("invalid base64url value")
+    decoded = base64.b64decode((value + "=" * (-len(value) % 4)).encode("ascii"), altchars=b"-_", validate=True)
+    if _b64(decoded) != value:
+        raise ValueError("non-canonical base64url value")
+    return decoded
 
 
 def make_user(username, password, role="viewer", iterations=DEFAULT_ITERATIONS):
