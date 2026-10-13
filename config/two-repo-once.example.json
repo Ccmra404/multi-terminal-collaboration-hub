@@ -1,0 +1,30 @@
+{
+  "repositories": [
+    {
+      "repository": "example/coordination-hub",
+      "coordination_issue": 1,
+      "task_issue_numbers": [2, 4],
+      "task_label": "codex-task",
+      "main_branch": "main",
+      "authorized_handoff_users": ["example-owner"],
+      "token_env": "GH_TOKEN_PROJECT_COLLAB_HUB"
+    },
+    {
+      "repository": "example/managed-project",
+      "coordination_issue": 9,
+      "task_issue_numbers": [10, 12],
+      "task_label": "codex-task",
+      "main_branch": "main",
+      "authorized_handoff_users": ["example-owner"],
+      "token_env": "GH_TOKEN_ADBLOCK_PRO"
+    }
+  ],
+  "api_base": "https://api.github.com",
+  "allowed_api_hosts": ["api.github.com"],
+  "timeout_seconds": 20,
+  "max_retries": 3,
+  "max_pages": 3,
+  "poll_interval_seconds": 300,
+  "state_file": "/var/lib/collaboration-hub/once/state.json",
+  "report_file": "/var/lib/collaboration-hub/once/report.json"
+}

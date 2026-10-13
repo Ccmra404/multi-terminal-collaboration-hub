@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "executor": "codex_task_planner",
+  "codex_path": "/www/server/nodejs/v24.15.0/bin/codex",
+  "codex_home": "/var/lib/collaboration-hub/codex-home",
+  "workspace_root": "/var/lib/collaboration-hub/planner-workspaces",
+  "plans_file": "/var/lib/collaboration-hub/planner/generated-plans.json",
+  "planner_state_file": "/var/lib/collaboration-hub/planner/state.json",
+  "task_label": "codex-task",
+  "max_tasks_per_run": 1,
+  "timeout_seconds": 180
+}

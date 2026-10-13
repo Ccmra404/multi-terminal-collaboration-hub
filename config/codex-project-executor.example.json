@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "executor": "codex_project_task",
+  "codex_path": "/www/server/nodejs/v24.15.0/bin/codex",
+  "codex_home": "/var/lib/collaboration-hub/codex-home",
+  "workspace_root": "/var/lib/collaboration-hub/project-workspaces",
+  "plans_file": "/var/lib/collaboration-hub/planner/generated-plans.json",
+  "write_token_env": "GH_TOKEN_PROJECT_COLLAB_HUB_WRITE",
+  "repositories": {
+    "example/coordination-hub": {
+      "remote": "https://github.com/example/coordination-hub.git",
+      "mirror": "/var/lib/collaboration-hub/repositories/Collaboration-Hub",
+      "main_branch": "main"
+    },
+    "example/managed-project": {
+      "remote": "https://github.com/example/managed-project.git",
+      "mirror": "/var/lib/collaboration-hub/repositories/managed-project",
+      "main_branch": "main"
+    }
+  },
+  "plans": {
+    "example/coordination-hub#19": {
+      "trusted": true,
+      "plan_id": "issue19-task-status-summary",
+      "repository": "example/coordination-hub",
+      "issue": 19,
+      "base_ref": "main",
+      "branch": "codex/issue-19-task-status-summary",
+      "prompt": "Add a small pure-Python helper in tools/task_status_summary.py that deterministically summarizes known task status counts for the existing local queue. Add tests/test_task_status_summary.py covering empty, normal, and unknown statuses, and add a short usage note to docs/task-dispatch.md. Work only on the allowlisted files and run the specified unittest command.",
+      "allowed_paths": [
+        "tools/task_status_summary.py",
+        "tests/test_task_status_summary.py",
+        "docs/task-dispatch.md"
+      ],
+      "test_command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_task_status_summary.py",
+        "-v"
+      ],
+      "commit_message": "feat: add task status summary helper",
+      "pr_title": "feat: add task status summary helper",
+      "pr_body": "Automated low-risk real-project delivery for Collaboration-Hub Issue #19.\n\nThe change is limited to the trusted allowlist and includes the focused unittest run.\n\nRefs #19",
+      "timeout_seconds": 300
+    }
+  }
+}

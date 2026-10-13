@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "target_overrides": {
+    "example/coordination-hub#2": "computer",
+    "example/coordination-hub#4": "mobile"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "approval_ttl_seconds": 900,
+  "projects": [
+    {
+      "project_id": "collaboration-hub",
+      "repositories": ["example/coordination-hub"],
+      "allowed_branches": ["main", "feat/*"],
+      "allowed_environments": ["development", "ci", "staging"],
+      "authorized_actors": ["maintainer", "server", "computer", "mobile"],
+      "authorized_executors": ["server", "computer", "mobile"],
+      "task_writers": {"8": "server"},
+      "action_policies": {
+        "read": "allow",
+        "run_tests": "allow",
+        "code_change": "allow",
+        "branch_push": "allow",
+        "pull_request": "allow",
+        "issue_comment": "approval",
+        "merge": "approval",
+        "release": "approval",
+        "credential_change": "approval",
+        "permissions_change": "approval",
+        "production_deploy": "approval",
+        "delete": "approval",
+        "force_push": "approval"
+      },
+      "sensitive_paths": ["deploy/**", "config/**", ".github/workflows/**", "SECURITY.md"],
+      "required_checks": {"ci": true, "independent_review": true}
+    },
+    {
+      "project_id": "example-project",
+      "repositories": ["example/managed-project"],
+      "allowed_branches": ["main", "feat/*"],
+      "allowed_environments": ["development", "ci", "staging"],
+      "authorized_actors": ["maintainer", "server", "computer", "mobile"],
+      "authorized_executors": ["server", "computer", "mobile"],
+      "task_writers": {"10": "server", "12": "server"},
+      "action_policies": {
+        "read": "allow",
+        "run_tests": "allow",
+        "code_change": "allow",
+        "branch_push": "allow",
+        "pull_request": "allow",
+        "issue_comment": "approval",
+        "merge": "approval",
+        "release": "approval",
+        "credential_change": "approval",
+        "permissions_change": "approval",
+        "production_deploy": "approval",
+        "delete": "approval",
+        "force_push": "approval"
+      },
+      "sensitive_paths": ["deploy/**", "config/**", ".github/workflows/**", "SECURITY.md"],
+      "required_checks": {"ci": true, "independent_review": true}
+    }
+  ]
+}

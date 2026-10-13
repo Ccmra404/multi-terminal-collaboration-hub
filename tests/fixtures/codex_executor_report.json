@@ -1,0 +1,19 @@
+{
+  "schema_version": 3,
+  "generated_at": "2026-10-12T12:00:00Z",
+  "repositories": [
+    {
+      "repository": "example/coordination-hub",
+      "tasks": [
+        {
+          "issue": 17,
+          "title": "codex executor acceptance",
+          "state": "open",
+          "status": "approved",
+          "target": "server",
+          "target_verified": true
+        }
+      ]
+    }
+  ]
+}

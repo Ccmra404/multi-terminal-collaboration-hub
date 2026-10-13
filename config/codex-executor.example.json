@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "executor": "codex_dev_task",
+  "codex_path": "/www/server/nodejs/v24.15.0/bin/codex",
+  "codex_home": "/var/lib/collaboration-hub/codex-home",
+  "plans": {
+    "example/coordination-hub#17": {
+      "trusted": true,
+      "plan_id": "issue17-safe-smoke",
+      "repository": "example/coordination-hub",
+      "issue": 17,
+      "base_ref": "main",
+      "workspace_kind": "isolated",
+      "prompt": "In this empty isolated workspace, create hello.py with a hello() function returning ok and test_hello.py with one unittest for it. Run the local unittest check. Work only inside this workspace and perform local file and test actions.",
+      "allowed_files": [
+        "hello.py",
+        "test_hello.py"
+      ],
+      "run_local_unittest": true,
+      "timeout_seconds": 120
+    }
+  }
+}

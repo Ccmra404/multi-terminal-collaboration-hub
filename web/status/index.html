@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f7">
+  <meta name="description" content="多端协作中心：查看电脑、手机与服务器的任务状态。">
+  <title>多端协作中心 · 任务状态</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="#top">多端协作中心</a>
+      <button id="refresh" class="refresh" type="button">刷新</button>
+    </header>
+
+    <main id="top">
+      <section class="intro">
+        <div>
+          <h1>协作总览</h1>
+          <p>电脑、手机与服务器的任务进度和交接</p>
+        </div>
+      </section>
+
+      <div id="sync" class="sync" role="status" aria-live="polite"><span class="dot"></span><span id="sync-text">正在读取任务状态…</span></div>
+      <div id="warning" class="warning hidden" role="alert"></div>
+
+      <section class="section" aria-labelledby="owners-heading">
+        <div class="overview-panel">
+          <div class="section-head">
+            <h2 id="owners-heading">任务概览</h2>
+            <span class="hint">选择设备查看未完成任务</span>
+          </div>
+          <div id="owners" class="owners">
+            <div class="skeleton">正在加载任务概览…</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section tasks-section" aria-labelledby="tasks-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="tasks-heading">协作任务</h2>
+          </div>
+          <span id="task-count" class="count">—</span>
+        </div>
+
+        <div class="task-toolbar">
+          <label class="search-wrap">
+            <span class="sr-only">搜索任务</span>
+            <span class="search-icon" aria-hidden="true"></span>
+            <input id="search" type="search" placeholder="搜索任务或编号" autocomplete="off">
+          </label>
+          <label class="filter-control">
+            <span>仓库</span>
+            <select id="repo-filter" aria-label="按仓库筛选"><option value="all">全部仓库</option></select>
+          </label>
+          <label class="filter-control">
+            <span>任务状态</span>
+            <select id="stage-filter" aria-label="按处理阶段筛选">
+              <option value="all" data-status-filter="all">全部阶段</option>
+              <option value="pending" data-status-filter="pending">待领取</option>
+              <option value="claimed" data-status-filter="claimed">已领取</option>
+              <option value="running" data-status-filter="running">进行中</option>
+              <option value="review" data-status-filter="review">待复审</option>
+              <option value="blocked" data-status-filter="blocked">已阻断</option>
+              <option value="failed" data-status-filter="failed">失败</option>
+              <option value="completed" data-status-filter="completed">已完成</option>
+              <option value="unknown" data-status-filter="unknown">未确认</option>
+            </select>
+          </label>
+        </div>
+        <div id="tasks" class="task-list" aria-live="polite"><div class="skeleton">正在加载任务…</div></div>
+      </section>
+
+      <details id="task-controls" class="secondary-section">
+        <summary>
+          <span class="summary-title">更多筛选</span>
+          <span class="summary-right">任务范围</span>
+        </summary>
+        <div class="secondary-body">
+          <div class="toolbar">
+            <label class="select-wrap">
+              <span class="sr-only">筛选任务范围</span>
+              <select id="filters">
+                <option value="attention" data-filter="attention">待处理</option>
+                <option value="all" data-filter="all">全部任务</option>
+                <option value="server" data-filter="server">服务器</option>
+                <option value="computer" data-filter="computer">电脑</option>
+                <option value="mobile" data-filter="mobile">手机</option>
+                <option value="approval" data-filter="approval">待批准</option>
+                <option value="completed_failed" data-filter="completed_failed">已结束</option>
+                <option value="unknown" data-filter="unknown">未确认</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <details id="unassigned-section" class="unassigned-section">
+        <summary>
+          <span class="summary-title">未分配任务 <span id="unassigned-count" class="count">—</span></span>
+          <span class="summary-right">查看未完成任务</span>
+        </summary>
+        <div id="unassigned-tasks" class="task-list compact-list" aria-live="polite"><div class="skeleton">正在加载…</div></div>
+      </details>
+
+      <details id="pulls-section" class="pr-section">
+        <summary>
+          <span class="summary-title">代码提交与检查 <span id="pull-count" class="count">—</span></span>
+          <span class="summary-right">查看关联 PR</span>
+        </summary>
+        <div id="pulls" class="pull-list"><div class="skeleton">正在加载…</div></div>
+      </details>
+
+      <footer><span id="origin">只读数据</span> · 任务详情和讨论请前往 GitHub</footer>
+    </main>
+  </div>
+  <script src="./app.js" defer></script>
+</body>
+</html>

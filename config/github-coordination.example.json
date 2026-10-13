@@ -1,0 +1,28 @@
+{
+  "repositories": [
+    {
+      "repository": "example/managed-project",
+      "coordination_issue": 9,
+      "task_issue_numbers": [],
+      "main_branch": "main",
+      "authorized_handoff_users": [],
+      "token_env": "GH_TOKEN_ADBLOCK_PRO"
+    },
+    {
+      "repository": "example/second-private-repo",
+      "coordination_issue": 1,
+      "task_issue_numbers": [],
+      "main_branch": "main",
+      "authorized_handoff_users": [],
+      "token_env": "GH_TOKEN_SECOND_REPO"
+    }
+  ],
+  "api_base": "https://api.github.com",
+  "allowed_api_hosts": ["api.github.com"],
+  "timeout_seconds": 20,
+  "max_retries": 3,
+  "max_pages": 3,
+  "poll_interval_seconds": 300,
+  "state_file": "/var/lib/collaboration-hub/github-coordination/state.json",
+  "report_file": "/var/lib/collaboration-hub/github-coordination/report.json"
+}
