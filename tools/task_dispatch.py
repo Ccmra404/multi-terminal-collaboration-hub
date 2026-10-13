@@ -152,6 +152,13 @@ def _normalize_target(value):
     return aliases.get(text, "")
 
 
+def _source_task_is_done(task):
+    if not isinstance(task, dict) or task.get("status_verified") is not True:
+        return False
+    status = _clean(task.get("status"), 80).strip().upper()
+    return status in ("DONE", "已完成")
+
+
 def _load_json(path, maximum=MAX_STATE_BYTES):
     path = Path(path).expanduser()
     try:
@@ -336,6 +343,7 @@ class DispatchStore(object):
 
     @staticmethod
     def _task_record(task_id, task, target, target_source, target_verified, now):
+        source_done = _source_task_is_done(task)
         return {
             "task_id": task_id,
             "repository": task_id.rsplit("#", 1)[0],
@@ -343,16 +351,20 @@ class DispatchStore(object):
             "title": _clean(task.get("title") or "未命名任务", 240),
             "source_state": _clean(task.get("state") or "unknown", 40),
             "source_status": _clean(task.get("status") or "unknown", 500),
+            "source_status_verified": task.get("status_verified") is True,
             "source_updated_at": _clean(task.get("updated_at") or "unknown", 40),
             "target": target,
             "target_source": target_source,
             "target_verified": bool(target_verified),
-            "status": "PENDING",
+            "status": "DONE" if source_done else "PENDING",
             "claimant": "",
             "claimed_at": "",
             "heartbeat_at": "",
             "attempt": 0,
-            "result": {},
+            "result": (
+                {"executor": "verified_github_handoff", "reason": "source_status_done"}
+                if source_done else {}
+            ),
             "commit": "",
             "pr": "",
             "log_summary": "",
@@ -401,10 +413,51 @@ class DispatchStore(object):
                     existing = self._task_record(task_id, task, target, source, verified, timestamp)
                     state["tasks"][task_id] = existing
                 else:
+                    previous_source_updated_at = existing.get("source_updated_at")
                     existing["title"] = _clean(task.get("title") or existing.get("title"), 240)
                     existing["source_state"] = _clean(task.get("state") or "unknown", 40)
                     existing["source_status"] = _clean(task.get("status") or "unknown", 500)
+                    existing["source_status_verified"] = task.get("status_verified") is True
                     existing["source_updated_at"] = _clean(task.get("updated_at") or "unknown", 40)
+                    if _source_task_is_done(task) and existing.get("status") not in ("CLAIMED", "RUNNING", "DONE"):
+                        previous_status = existing.get("status")
+                        existing["status"] = "DONE"
+                        existing["claimant"] = ""
+                        existing["claimed_at"] = ""
+                        existing["heartbeat_at"] = ""
+                        existing["result"] = {
+                            "executor": "verified_github_handoff",
+                            "reason": "source_status_done",
+                        }
+                        self._audit(
+                            state,
+                            "source_completion_sync",
+                            task_id=task_id,
+                            actor="monitor",
+                            previous_status=previous_status,
+                            status="DONE",
+                        )
+                    elif (
+                        existing.get("status") == "BLOCKED"
+                        and isinstance(existing.get("result"), dict)
+                        and existing["result"].get("reason") == "task_not_eligible"
+                        and existing.get("source_updated_at") not in ("", "unknown", previous_source_updated_at)
+                    ):
+                        # A corrected label or task block changes GitHub's
+                        # updated_at. Reconsider only this ineligible task.
+                        existing["status"] = "PENDING"
+                        existing["claimant"] = ""
+                        existing["claimed_at"] = ""
+                        existing["heartbeat_at"] = ""
+                        existing["result"] = {}
+                        self._audit(
+                            state,
+                            "task_updated_requeued",
+                            task_id=task_id,
+                            actor="monitor",
+                            previous_status="BLOCKED",
+                            status="PENDING",
+                        )
                     # Do not silently reassign an active or completed task.  A
                     # newly explicit target may fill an unassigned PENDING row.
                     if existing.get("status") == "PENDING" and (

@@ -73,6 +73,14 @@ class PlannerError(ValueError):
     """Expected planner boundary failure."""
 
 
+class TaskNotEligibleError(PlannerError):
+    """The issue is not formatted or routed as an automatic server task."""
+
+
+class ApprovalRequiredError(PlannerError):
+    """The task crosses a policy boundary and needs maintainer review."""
+
+
 def _clean(value, maximum=240):
     try:
         return task_dispatch._clean(value, maximum)
@@ -191,17 +199,17 @@ def _extract_task_block(body):
     body = str(body or "")[:MAX_BODY_CHARS]
     matches = list(TASK_BLOCK_RE.finditer(body))
     if len(matches) != 1:
-        raise PlannerError("standard codex-task block is missing or duplicated")
+        raise TaskNotEligibleError("standard codex-task block is missing or duplicated")
     try:
         value = json.loads(matches[0].group(1).strip())
     except (TypeError, ValueError) as error:
-        raise PlannerError("codex-task block is not valid JSON: " + _clean(error, 180))
+        raise TaskNotEligibleError("codex-task block is not valid JSON: " + _clean(error, 180))
     if not isinstance(value, dict):
-        raise PlannerError("codex-task block must be a JSON object")
+        raise TaskNotEligibleError("codex-task block must be a JSON object")
     allowed = {"target", "repository", "goal", "allowed_paths", "test_command", "timeout_seconds"}
     unknown = sorted(set(value) - allowed)
     if unknown:
-        raise PlannerError("codex-task block contains unsupported fields")
+        raise TaskNotEligibleError("codex-task block contains unsupported fields")
     return value
 
 
@@ -210,38 +218,40 @@ def parse_standard_task(issue, repository, task_label=TASK_LABEL):
     if not isinstance(issue, dict):
         raise PlannerError("GitHub issue payload is not an object")
     if task_label.lower() not in _task_labels(issue):
-        raise PlannerError("task label is missing")
+        raise TaskNotEligibleError("task label is missing")
     raw = _extract_task_block(issue.get("body"))
     if _clean(raw.get("target"), 80).strip().lower() != "server":
-        raise PlannerError("automatic planner only accepts target=server")
+        raise TaskNotEligibleError("automatic planner only accepts target=server")
     if _clean(raw.get("repository"), 240).strip() != repository:
-        raise PlannerError("task repository does not match the queue repository")
+        raise TaskNotEligibleError("task repository does not match the queue repository")
     goal = _clean(raw.get("goal"), MAX_GOAL_CHARS).strip()
-    if not goal or FORBIDDEN_GOAL_RE.search(goal):
-        raise PlannerError("task goal is empty or sensitive")
+    if not goal:
+        raise TaskNotEligibleError("task goal is empty")
+    if FORBIDDEN_GOAL_RE.search(goal):
+        raise ApprovalRequiredError("task goal contains an action reserved for maintainer approval")
     paths = raw.get("allowed_paths")
     if not isinstance(paths, list) or not paths or len(paths) > MAX_FILES:
-        raise PlannerError("allowed_paths must be a bounded non-empty list")
+        raise TaskNotEligibleError("allowed_paths must be a bounded non-empty list")
     normalized_paths = []
     for item in paths:
         try:
             path = project_executor._safe_relative_path(item)
         except project_executor.ProjectExecutorError as error:
-            raise PlannerError(_clean(error, 240))
+            raise ApprovalRequiredError(_clean(error, 240))
         if SENSITIVE_PATH_RE.search(path):
-            raise PlannerError("sensitive paths require manual approval")
+            raise ApprovalRequiredError("sensitive paths require manual approval")
         if path not in normalized_paths:
             normalized_paths.append(path)
     try:
         test_command = project_executor._validate_test_command(raw.get("test_command"))
     except project_executor.ProjectExecutorError as error:
-        raise PlannerError(_clean(error, 240))
+        raise ApprovalRequiredError(_clean(error, 240))
     try:
         timeout = int(raw.get("timeout_seconds", 180))
     except (TypeError, ValueError):
-        raise PlannerError("timeout_seconds is invalid")
+        raise TaskNotEligibleError("timeout_seconds is invalid")
     if not MIN_TIMEOUT_SECONDS <= timeout <= MAX_TIMEOUT_SECONDS:
-        raise PlannerError("timeout_seconds is outside the bounded range")
+        raise TaskNotEligibleError("timeout_seconds is outside the bounded range")
     return {
         "repository": repository,
         "goal": goal,
@@ -347,10 +357,10 @@ def _parse_plan_output(text, task):
     if set(value) - {"summary", "allowed_paths", "test_command", "risk"}:
         raise PlannerError("Codex planner output contains unsupported fields")
     if _clean(value.get("risk"), 40).strip().lower() != "low":
-        raise PlannerError("Codex planner did not classify the task as low risk")
+        raise ApprovalRequiredError("Codex planner did not classify the task as low risk")
     summary = _clean(value.get("summary"), MAX_SUMMARY_CHARS).strip()
     if not summary or FORBIDDEN_GOAL_RE.search(summary):
-        raise PlannerError("Codex planner summary is empty or sensitive")
+        raise ApprovalRequiredError("Codex planner summary is empty or sensitive")
     raw_paths = value.get("allowed_paths")
     if not isinstance(raw_paths, list) or not raw_paths:
         raise PlannerError("Codex planner returned no allowed paths")
@@ -463,6 +473,12 @@ def _state_update(state, task_id, status, **details):
     state["tasks"][task_id] = item
 
 
+def _ineligible_issue_was_updated(state_entry, candidate):
+    previous = _clean(state_entry.get("source_updated_at"), 40)
+    current = _clean(candidate.get("source_updated_at"), 40)
+    return bool(previous and current and previous != "unknown" and current != "unknown" and previous != current)
+
+
 def _plan_raw(task_id, issue, task, planner_output):
     canonical = json.dumps(
         {
@@ -502,13 +518,13 @@ def _plan_raw(task_id, issue, task, planner_output):
     return raw, planner_output["summary"]
 
 
-def _block_task(store, task_id, reason, detail):
+def _block_task(store, task_id, reason, detail, approval_state="PENDING_APPROVAL"):
     record = store.get(task_id)
     result = {
         "executor": PLANNER_NAME,
         "task_id": task_id,
         "reason": _clean(reason, 180),
-        "approval_state": "PENDING_APPROVAL",
+        "approval_state": approval_state,
     }
     if detail:
         result["detail"] = _summary(detail, 800)
@@ -578,6 +594,8 @@ def run_next(store, plan_config, monitor_config, project_config_path):
         state_entry = planner_state["tasks"].get(task_id, {})
         if state_entry.get("status") in ("PLANNED", "BLOCKED"):
             continue
+        if state_entry.get("status") == "INELIGIBLE" and not _ineligible_issue_was_updated(state_entry, candidate):
+            continue
         if task_id in plans_file["plans"]:
             _state_update(planner_state, task_id, "PLANNED", plan_id="existing")
             store.set_planner_metadata(task_id, {"status": "PLANNED", "plan_id": "existing"})
@@ -630,10 +648,29 @@ def run_next(store, plan_config, monitor_config, project_config_path):
             )
             count += 1
             break
-        except (PlannerError, coordination.CoordinationError, project_executor.ProjectExecutorError, OSError, ValueError) as error:
+        except TaskNotEligibleError as error:
+            detail = _summary(error, 800)
+            _block_task(store, task_id, "task_not_eligible", detail, approval_state="NOT_REQUIRED")
+            _state_update(
+                planner_state,
+                task_id,
+                "INELIGIBLE",
+                reason="task_not_eligible",
+                detail=detail,
+                source_updated_at=candidate.get("source_updated_at", "unknown"),
+            )
+            count += 1
+            break
+        except ApprovalRequiredError as error:
             detail = _summary(error, 800)
             _block_task(store, task_id, "plan_requires_approval", detail)
             _state_update(planner_state, task_id, "BLOCKED", reason="plan_requires_approval", detail=detail)
+            count += 1
+            break
+        except (PlannerError, coordination.CoordinationError, project_executor.ProjectExecutorError, OSError, ValueError) as error:
+            detail = _summary(error, 800)
+            _block_task(store, task_id, "planner_error", detail, approval_state="NOT_REQUIRED")
+            _state_update(planner_state, task_id, "BLOCKED", reason="planner_error", detail=detail)
             count += 1
             break
     _write_json(plan_config["planner_state_file"], planner_state, "planner state")

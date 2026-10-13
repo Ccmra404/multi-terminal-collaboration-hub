@@ -39,6 +39,7 @@ def monitor_report():
                         "title": "server task",
                         "state": "open",
                         "status": "待执行",
+                        "status_verified": False,
                         "owner": "服务器端",
                         "owner_verified": True,
                     },
@@ -140,6 +141,55 @@ class TaskDispatchTests(unittest.TestCase):
             self.assertEqual(planner["status"], "PLANNED")
             self.assertEqual(store.get(SERVER_REPO + "#10")["status"], "PENDING")
             self.assertEqual(store.get(SERVER_REPO + "#10")["planner"]["plan_id"], "auto-10")
+
+    def test_verified_source_completion_resolves_stale_local_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = task_dispatch.DispatchStore(Path(tmp) / "state.json")
+            task_id = SERVER_REPO + "#10"
+            store.sync(monitor_report(), now=NOW)
+            store.claim(task_id, "server", now=NOW)
+            store.start(task_id, "server", now=NOW)
+            store.submit(task_id, "server", "BLOCKED", result={"reason": "task_not_eligible"}, now=NOW)
+
+            completed = monitor_report()
+            source_task = completed["repositories"][1]["tasks"][0]
+            source_task.update({
+                "state": "closed",
+                "status": "DONE",
+                "status_verified": True,
+                "updated_at": "2026-10-13T18:00:00Z",
+            })
+            store.sync(completed, now="2026-10-13T18:00:05Z")
+
+            record = store.get(task_id)
+            self.assertEqual(record["status"], "DONE")
+            self.assertTrue(record["source_status_verified"])
+            self.assertEqual(record["result"]["reason"], "source_status_done")
+
+    def test_corrected_ineligible_task_is_requeued_after_issue_update(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = task_dispatch.DispatchStore(Path(tmp) / "state.json")
+            task_id = SERVER_REPO + "#10"
+            initial = monitor_report()
+            initial["repositories"][1]["tasks"][0]["updated_at"] = "2026-10-13T17:00:00Z"
+            store.sync(initial, now=NOW)
+            store.claim(task_id, "server", now=NOW)
+            store.start(task_id, "server", now=NOW)
+            store.submit(
+                task_id,
+                "server",
+                "BLOCKED",
+                result={"reason": "task_not_eligible", "approval_state": "NOT_REQUIRED"},
+                now=NOW,
+            )
+
+            corrected = monitor_report()
+            corrected["repositories"][1]["tasks"][0]["updated_at"] = "2026-10-13T17:05:00Z"
+            store.sync(corrected, now="2026-10-13T17:05:01Z")
+
+            record = store.get(task_id)
+            self.assertEqual(record["status"], "PENDING")
+            self.assertEqual(record["result"], {})
 
 
 if __name__ == "__main__":
