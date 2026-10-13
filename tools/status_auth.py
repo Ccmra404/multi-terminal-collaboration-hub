@@ -202,11 +202,13 @@ def write_config(path, config):
 def _main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
     sub.add_parser("init", help="create a first maintainer account")
     add = sub.add_parser("add-user", help="add a dashboard account")
     add.add_argument("--role", choices=("maintainer", "viewer"), default="viewer")
     args = parser.parse_args(argv)
+    if args.command is None:
+        parser.error("a command is required")
     username = input("Username: ").strip()
     password = getpass.getpass("Password: ")
     path = Path(args.config)

@@ -17,9 +17,16 @@ import re
 import sys
 import time
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse
+
+try:  # ThreadingHTTPServer was added in Python 3.7; the server host also has 3.6.
+    from http.server import ThreadingHTTPServer
+except ImportError:  # pragma: no cover - exercised on Python 3.6 deployments
+    class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
 
 try:
     import github_coordination as coordination
