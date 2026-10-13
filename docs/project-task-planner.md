@@ -18,7 +18,18 @@ JSON block fenced as `codex-task`:
 The host parser accepts only these fields. It rejects sensitive paths, shell
 syntax, credentials, production/deployment work, unknown repositories, target
 values other than `server`, and commands outside the fixed unittest argv
-shape. Computer and mobile tasks remain manual.
+shape. Issues with a missing label or malformed task block are recorded as
+`task_not_eligible`, not as waiting for approval. Only policy-sensitive requests
+are marked as needing maintainer approval; planner/API failures are reported as
+planner errors. Computer and mobile tasks remain manual.
+
+This is not a general-purpose issue runner. The existing monitor only scans its
+explicitly configured repositories, and the planner only considers verified
+`target=server` rows. An issue must use the repository's `codex-task` label and
+the task block above. Missing or malformed intake is visible in the local queue;
+editing that issue requeues it for another check. Requests involving sensitive
+files, deployment, credentials, or unsupported commands still require human
+review.
 
 ## Planning and execution boundary
 
@@ -31,7 +42,9 @@ Only then does the existing project executor receive the plan and perform the
 workspace/test/push/Draft-PR flow.
 
 Plans and planner outcomes are bounded, private, and deterministic by task ID.
-`PLANNED` or `BLOCKED` entries are not retried by the five-minute timer; an
-operator must explicitly clear/retry them. Existing static plans remain under
-the reviewed executor configuration. No Issue body, comment, model claim, or
-planner output is treated as an approval or shell command.
+`PLANNED`, `INELIGIBLE`, and `BLOCKED` entries are not retried automatically;
+an operator must explicitly clear/retry policy blocks. An ineligible task is
+reconsidered when its GitHub issue is edited, so adding the required label or
+correcting the task block is enough to put it back in the queue. Existing static
+plans remain under the reviewed executor configuration. No Issue body, comment,
+model claim, or planner output is treated as an approval or shell command.

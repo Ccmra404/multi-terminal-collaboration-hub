@@ -30,7 +30,7 @@ jobs:
       - name: Test frontend behavior
         run: node --test tests/status_frontend.test.cjs
       - name: Compile coordination tools
-        run: python -m py_compile tools/github_coordination.py tools/once_verify.py tools/authorization.py tools/policy_check.py tools/evidence.py tools/workflow.py tools/workflow_demo.py tools/status_web.py tools/task_dispatch.py tools/codex_executor.py tools/project_codex_executor.py tools/project_task_planner.py
+        run: python -m py_compile tools/github_coordination.py tools/once_verify.py tools/authorization.py tools/policy_check.py tools/evidence.py tools/workflow.py tools/workflow_demo.py tools/status_web.py tools/status_auth.py tools/task_approvals.py tools/task_dispatch.py tools/codex_executor.py tools/project_codex_executor.py tools/project_task_planner.py
       - name: Run workflow sandbox
         run: python tools/workflow_demo.py --simulate-approval >/dev/null
       - name: Validate example configuration

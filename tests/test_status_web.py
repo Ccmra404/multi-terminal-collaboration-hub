@@ -1,4 +1,5 @@
 import json
+import http.cookies
 import subprocess
 import sys
 import tempfile
@@ -263,6 +264,15 @@ class StatusWebTests(unittest.TestCase):
         self.assertEqual(payload["dispatch"]["runtime_status"], "QUEUE_ONLY")
         self.assertEqual(task["dispatch"]["result"]["note"], "<redacted>")
 
+    def test_projection_marks_plans_waiting_for_maintainer_approval(self):
+        payload = status_web.build_dashboard_payload(report(), now=NOW, dispatch_state={"tasks": {
+            "example/hub#1": {"task_id": "example/hub#1", "target": "server", "status": "PENDING",
+                "planner": {"status": "PENDING_APPROVAL", "summary": "Review scoped changes"}},
+        }})
+        task = next(item for item in payload["tasks"] if item["issue"] == 1)
+        self.assertEqual(task["status"], "待维护者确认")
+        self.assertEqual(task["status_kind"], "approval")
+
     def test_closed_issue_is_presented_as_closed_despite_unfinished_dispatch(self):
         for dispatch_status in ("PENDING", "CLAIMED", "RUNNING", "REVIEW"):
             with self.subTest(dispatch_status=dispatch_status):
@@ -479,6 +489,65 @@ class StatusWebTests(unittest.TestCase):
                 with self.assertRaises(HTTPError) as error:
                     urlopen(request, timeout=2)
                 self.assertEqual(error.exception.code, 405)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+    def test_login_protects_dashboard_and_allows_one_maintainer_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "index.html").write_text("<title>dashboard</title>", encoding="utf-8")
+            report_path = root / "report.json"
+            report_path.write_text(json.dumps(report()), encoding="utf-8")
+            auth = status_web.status_auth.AuthManager(status_web.status_auth.create_config(
+                [("maintainer", "sample-test-password", "maintainer")], iterations=100_000
+            ))
+            approvals = status_web.task_approvals.TaskApprovalStore(root / "approvals.json")
+            pending = approvals.create_pending({
+                "task_id": "Ccmra404/multi-terminal-collaboration-hub#3",
+                "repository": "Ccmra404/multi-terminal-collaboration-hub", "issue": 3,
+                "issue_url": "https://github.com/Ccmra404/multi-terminal-collaboration-hub/issues/3",
+                "title": "Scoped test task", "summary": "Review this exact plan",
+                "issue_digest": "a" * 64, "allowed_paths": ["tools/example.py"],
+                "test_command": ["python3", "-m", "unittest", "discover", "-s", "tests"],
+                "plan": {"prompt": "reviewed plan"},
+            })
+            server = status_web.StatusHTTPServer(
+                ("127.0.0.1", 0), status_web.StatusRequestHandler,
+                status_web.DashboardStore(report_path, clock=lambda: NOW), root,
+                auth, approvals, secure_cookies=False,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = "http://127.0.0.1:%d" % server.server_port
+                with self.assertRaises(HTTPError) as denied:
+                    urlopen(base + "/api/status", timeout=2)
+                self.assertEqual(denied.exception.code, 401)
+                login = Request(base + "/api/login", data=json.dumps({
+                    "username": "maintainer", "password": "sample-test-password",
+                }).encode(), headers={"Origin": base, "Content-Type": "application/json"}, method="POST")
+                with urlopen(login, timeout=2) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                    cookie = http.cookies.SimpleCookie(response.headers.get("Set-Cookie"))
+                cookie_header = "collab_session=" + cookie["collab_session"].value
+                dashboard = Request(base + "/api/status", headers={"Cookie": cookie_header})
+                self.assertEqual(json.loads(urlopen(dashboard, timeout=2).read().decode())["summary"]["task_count"], 7)
+                listing = Request(base + "/api/approvals", headers={"Cookie": cookie_header})
+                result = json.loads(urlopen(listing, timeout=2).read().decode())["approvals"]
+                self.assertEqual(result[0]["request_id"], pending["request_id"])
+                self.assertNotIn("plan", result[0])
+                bad_decision = Request(base + "/api/approvals/" + pending["request_id"] + "/decision",
+                    data=b'{"decision":"approve"}', headers={"Origin": base, "Cookie": cookie_header,
+                    "Content-Type": "application/json"}, method="POST")
+                with self.assertRaises(HTTPError) as csrf_error:
+                    urlopen(bad_decision, timeout=2)
+                self.assertEqual(csrf_error.exception.code, 403)
+                decision = Request(base + "/api/approvals/" + pending["request_id"] + "/decision",
+                    data=b'{"decision":"approve"}', headers={"Origin": base, "Cookie": cookie_header,
+                    "X-CSRF-Token": body["csrf_token"], "Content-Type": "application/json"}, method="POST")
+                self.assertEqual(json.loads(urlopen(decision, timeout=2).read().decode())["approval"]["status"], "APPROVED")
             finally:
                 server.shutdown()
                 server.server_close()

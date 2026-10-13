@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Serve a read-only, mobile-first dashboard from the existing monitor report.
+"""Serve an authenticated dashboard from the existing monitor report.
 
 The monitor remains the only GitHub reader.  This process reads its private
-0600 JSON report and exposes a small, sanitized JSON view to the browser; no
-token, GitHub API client, write endpoint, or task executor is loaded here.
+0600 JSON report and exposes a small, sanitized JSON view to the browser. The
+only write surface is one-time maintainer decisions for bounded task plans.
 """
 
 from __future__ import print_function
 
 import argparse
+import http.cookies
 import json
 import mimetypes
+import os
 import re
 import sys
 import time
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -26,6 +28,16 @@ except ImportError:  # pragma: no cover - run-from-repository-root convenience
     if _tools not in sys.path:
         sys.path.insert(0, _tools)
     import github_coordination as coordination
+
+try:
+    import status_auth
+    import task_approvals
+except ImportError:  # pragma: no cover - run-from-repository-root convenience
+    _tools = str(Path(__file__).resolve().parent)
+    if _tools not in sys.path:
+        sys.path.insert(0, _tools)
+    import status_auth
+    import task_approvals
 
 
 DEFAULT_REPORT_FILE = "/var/lib/collaboration-hub/once/report.json"
@@ -305,6 +317,11 @@ def _task_projection(repository, task, pulls_by_number, dispatch=None):
             projected["status"] = "已完成" if dispatch_projection["status"] == "DONE" else "已关闭"
         else:
             projected["status"] = dispatch_projection["label"]
+            planner = dispatch_projection.get("planner") if isinstance(dispatch_projection.get("planner"), dict) else {}
+            if _clean(planner.get("status"), 80).upper() == "PENDING_APPROVAL":
+                projected["approval"] = "待维护者确认"
+                projected["approval_verified"] = True
+                projected["status"] = "待维护者确认"
         projected["status_kind"] = _status_kind(projected)
     return projected
 
@@ -502,15 +519,22 @@ class DashboardStore(object):
             )
 
 
-class StatusHTTPServer(HTTPServer):
-    def __init__(self, address, handler, store, web_dir):
+class StatusHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, address, handler, store, web_dir, auth_manager=None, approval_store=None, secure_cookies=True):
         self.store = store
         self.web_dir = Path(web_dir).resolve()
+        self.auth_manager = auth_manager
+        self.approval_store = approval_store
+        self.secure_cookies = bool(secure_cookies)
         super(StatusHTTPServer, self).__init__(address, handler)
 
 
 class StatusRequestHandler(BaseHTTPRequestHandler):
     server_version = "ProjectCollabStatus/1"
+    MAX_BODY = 16 * 1024
+    SESSION_COOKIE = "collab_session"
 
     def _headers(self, content_type, length):
         self.send_header("Content-Type", content_type)
@@ -521,12 +545,66 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'none'")
         self.send_header("Referrer-Policy", "no-referrer")
 
-    def _json(self, value, status=200):
+    def _json(self, value, status=200, headers=None):
         body = json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
         self.send_response(status)
         self._headers("application/json; charset=utf-8", len(body))
+        for key, val in (headers or {}).items():
+            self.send_header(key, val)
         self.end_headers()
         self.wfile.write(body)
+
+    def _body(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            return None
+        if length <= 0 or length > self.MAX_BODY:
+            return None
+        try:
+            value = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def _same_origin(self):
+        origin = self.headers.get("Origin", "")
+        host = self.headers.get("Host", "")
+        try:
+            parsed = urlparse(origin)
+        except (TypeError, ValueError):
+            return False
+        expected_scheme = "https" if self.server.secure_cookies else "http"
+        return parsed.scheme == expected_scheme and parsed.netloc.lower() == host.lower()
+
+    def _session(self):
+        manager = self.server.auth_manager
+        if manager is None:
+            return None
+        jar = http.cookies.SimpleCookie()
+        try:
+            jar.load(self.headers.get("Cookie", ""))
+            token = jar[self.SESSION_COOKIE].value if self.SESSION_COOKIE in jar else ""
+        except (http.cookies.CookieError, KeyError):
+            token = ""
+        return manager.read_session(token)
+
+    def _authorized(self, maintainer=False, csrf=False):
+        if self.server.auth_manager is None:
+            return {"username": "local", "role": "maintainer", "csrf_token": ""}
+        session = self._session()
+        if not session:
+            self._json({"error": "authentication_required"}, status=401)
+            return None
+        if maintainer and session.get("role") != "maintainer":
+            self._json({"error": "maintainer_required"}, status=403)
+            return None
+        if csrf and (not self._same_origin() or not self.server.auth_manager.verify_csrf(
+            session, self.headers.get("X-CSRF-Token", "")
+        )):
+            self._json({"error": "csrf_check_failed"}, status=403)
+            return None
+        return session
 
     def _static(self, path):
         names = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css"}
@@ -554,7 +632,30 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802 - stdlib handler interface
         path = urlparse(self.path).path
+        if path == "/api/session":
+            if self.server.auth_manager is None:
+                self._json({"authenticated": True, "auth_enabled": False, "username": "local", "role": "maintainer"})
+                return
+            session = self._session()
+            self._json({"authenticated": bool(session), "auth_enabled": True,
+                        "username": session.get("username", "") if session else "",
+                        "role": session.get("role", "") if session else "",
+                        "csrf_token": session.get("csrf_token", "") if session else ""})
+            return
+        if path == "/api/approvals":
+            session = self._authorized(maintainer=True)
+            if session is None:
+                return
+            try:
+                approvals = self.server.approval_store.pending() if self.server.approval_store else []
+            except (OSError, ValueError):
+                self._json({"error": "approvals_unavailable"}, status=503)
+                return
+            self._json({"approvals": approvals})
+            return
         if path in ("/api/status", "/api/refresh"):
+            if self._authorized() is None:
+                return
             self._json(self.server.store.payload())
             return
         if path == "/healthz":
@@ -563,8 +664,72 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
             return
         self._static(path)
 
-    def do_POST(self):  # noqa: N802 - read-only surface
-        self._json({"error": "read_only"}, status=405)
+    def do_POST(self):  # noqa: N802
+        path = urlparse(self.path).path
+        if path == "/api/login":
+            manager = self.server.auth_manager
+            if manager is None:
+                self._json({"error": "authentication_disabled"}, status=404)
+                return
+            if not self._same_origin():
+                self._json({"error": "origin_check_failed"}, status=403)
+                return
+            value = self._body()
+            if value is None:
+                self._json({"error": "invalid_request"}, status=400)
+                return
+            try:
+                source = status_auth.client_source(
+                    self.client_address[0], self.headers.get("X-Real-IP", "")
+                )
+                user = manager.authenticate(value.get("username"), value.get("password"), source)
+            except status_auth.AuthError:
+                self._json({"error": "login_rate_limited"}, status=429)
+                return
+            if not user:
+                self._json({"error": "invalid_credentials"}, status=401)
+                return
+            session = manager.create_session(user["username"])
+            cookie = "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Strict" % (
+                self.SESSION_COOKIE, session["token"], status_auth.SESSION_TTL_SECONDS
+            )
+            if self.server.secure_cookies:
+                cookie += "; Secure"
+            self._json({"authenticated": True, "username": session["username"], "role": session["role"],
+                        "csrf_token": session["csrf_token"]}, headers={"Set-Cookie": cookie})
+            return
+        if path == "/api/logout":
+            session = self._authorized(csrf=True)
+            if session is None:
+                return
+            self._json({"authenticated": False}, headers={
+                "Set-Cookie": "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict%s" % (
+                    self.SESSION_COOKIE, "; Secure" if self.server.secure_cookies else "")
+            })
+            return
+        match = re.fullmatch(r"/api/approvals/([A-Za-z0-9_-]{16,64})/decision", path)
+        if match:
+            session = self._authorized(maintainer=True, csrf=True)
+            if session is None:
+                return
+            value = self._body()
+            if value is None or value.get("decision") not in ("approve", "reject"):
+                self._json({"error": "invalid_request"}, status=400)
+                return
+            if self.server.approval_store is None:
+                self._json({"error": "approvals_unavailable"}, status=503)
+                return
+            try:
+                result = self.server.approval_store.decide(match.group(1), value["decision"], session["username"])
+            except task_approvals.ApprovalError:
+                self._json({"error": "approval_unavailable"}, status=409)
+                return
+            self._json({"approval": result})
+            return
+        if path in ("/api/status", "/api/refresh"):
+            self._json({"error": "method_not_allowed"}, status=405)
+            return
+        self._json({"error": "not_found"}, status=404)
 
     def log_message(self, format_string, *args):
         # Keep access logs bounded and free of headers/query strings.
@@ -579,9 +744,20 @@ def serve(
     port=DEFAULT_PORT,
     stale_after=DEFAULT_STALE_AFTER,
     dispatch_path=DEFAULT_DISPATCH_FILE,
+    auth_file="",
+    approval_file="",
+    secure_cookies=True,
 ):
     store = DashboardStore(report_path, stale_after=stale_after, dispatch_path=dispatch_path)
-    server = StatusHTTPServer((host, int(port)), StatusRequestHandler, store, web_dir)
+    auth_manager = None
+    if auth_file:
+        config_path = Path(auth_file).expanduser()
+        if os.name != "nt" and config_path.stat().st_mode & 0o077:
+            raise status_auth.AuthError("auth config must not be accessible by group or others")
+        auth_manager = status_auth.AuthManager(json.loads(config_path.read_text(encoding="utf-8")))
+    approval_store = task_approvals.TaskApprovalStore(approval_file) if approval_file else None
+    server = StatusHTTPServer((host, int(port)), StatusRequestHandler, store, web_dir,
+                              auth_manager, approval_store, secure_cookies)
     print("status_web: listening http://%s:%d" % (host, int(port)))
     print("status_web: source read-only monitor report %s" % report_path)
     try:
@@ -604,6 +780,9 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--stale-after", type=int, default=DEFAULT_STALE_AFTER)
     parser.add_argument("--dispatch-state-file", default=DEFAULT_DISPATCH_FILE)
+    parser.add_argument("--auth-file", default="")
+    parser.add_argument("--approval-file", default="")
+    parser.add_argument("--insecure-cookies", action="store_true", help="for local HTTP tests only")
     args = parser.parse_args(argv)
     return serve(
         args.report_file,
@@ -612,6 +791,9 @@ def main(argv=None):
         args.port,
         args.stale_after,
         args.dispatch_state_file,
+        args.auth_file,
+        args.approval_file,
+        not args.insecure_cookies,
     )
 
 

@@ -47,7 +47,9 @@ python3 tools/task_target_summary.py /var/lib/collaboration-hub/dispatch/state.j
 
 `pause --reason ...` is the persistent stop switch; `resume` clears it.
 `recover` marks claims whose heartbeat has expired as failed. The existing
-five-minute read-only monitor timer is independent and must not be changed.
+read-only monitor and dispatch timers are separate units. Their cadence is an
+operator setting; adjust existing units only after checking API rate limits,
+and do not add a duplicate timer.
 
 The default server executor remains the fixed, harmless
 `server_health_check` child. `run-server-next` deterministically auto-claims
@@ -71,6 +73,10 @@ needs to select a known task.
 Computer and mobile workspaces use the same `claim`, `start`, `heartbeat`, and
 `submit --status REVIEW` commands manually. The dashboard labels their pending
 rows `待电脑领取` and `待手机领取`; there is no remote wake-up.
+
+The queue also records verified source completion. If an authorized handoff
+later marks a task `DONE`, the next sync resolves a stale local `BLOCKED` or
+`FAILED` row to `DONE`; active local claims remain untouched.
 
 `config/task-dispatch.example.json` demonstrates explicit local target
 overrides. It is not installed automatically and must be reviewed before use;

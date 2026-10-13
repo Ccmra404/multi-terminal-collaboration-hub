@@ -69,7 +69,10 @@ async function dashboard(config = {}) {
   let fetchIndex = 0;
   vm.runInNewContext(readFileSync(join(root, 'app.js'), 'utf8'), {
     document, URL, console,
-    fetch: () => {
+    fetch: (url) => {
+      if (String(url).includes('/api/session')) {
+        return Promise.resolve({ ok: true, json: async () => ({ auth_enabled: false, authenticated: true }) });
+      }
       const response = config.fetches && fetchIndex < config.fetches.length
         ? config.fetches[fetchIndex++] : 'success';
       if (response instanceof Error) return Promise.reject(response);

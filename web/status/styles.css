@@ -136,6 +136,32 @@ h2 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.015em; }
 .ci.pending { color: #555; }
 .ci.neutral { color: var(--muted); }
 footer { display: flex; flex-wrap: wrap; gap: 6px; padding: 24px 2px 5px; color: var(--soft); font-size: 11px; }
+.account-controls { display: flex; align-items: center; gap: 14px; }
+.account-name { color: var(--muted); font-size: 12px; }
+.login-view { max-width: 1040px; margin: 72px auto; padding: 0 24px; }
+.login-card { width: min(100%, 420px); margin: 0 auto; padding: 30px; border: 1px solid var(--line); border-radius: 24px; background: #fff; }
+.login-card h1 { font-size: 23px; }
+.login-card > p { margin: 5px 0 22px; color: var(--muted); }
+.login-card label { display: grid; gap: 6px; margin-top: 14px; color: var(--muted); font-size: 12px; }
+.login-card input { width: 100%; min-height: 44px; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 12px; background: #fff; color: var(--text); }
+.primary-button, .secondary-button { min-height: 40px; padding: 8px 14px; border: 1px solid #222; border-radius: 13px; background: #222; color: #fff; font-weight: 600; }
+.primary-button:hover { background: #000; }
+.secondary-button { border-color: var(--line-strong); background: #fff; color: var(--text); }
+.secondary-button:hover { background: var(--wash); }
+.primary-button:disabled, .secondary-button:disabled { opacity: .55; cursor: wait; }
+.login-card .primary-button { width: 100%; margin-top: 20px; }
+.form-error { min-height: 20px; margin: 10px 0 0 !important; color: #8b2638 !important; font-size: 12px; }
+.approval-panel { padding: 17px; border: 1px solid var(--line); border-radius: 22px; background: #fff; }
+.approval-intro { margin: -3px 0 12px; color: var(--muted); font-size: 12px; }
+.approval-list { display: grid; gap: 10px; }
+.approval-item { padding: 15px; border: 1px solid var(--line); border-radius: 18px; background: var(--wash); }
+.approval-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.approval-heading h3 { margin: 0; font-size: 15px; font-weight: 620; overflow-wrap: anywhere; }
+.approval-expiry, .approval-meta { color: var(--muted); font-size: 11px; }
+.approval-issue { display: inline-block; margin-top: 6px; color: var(--accent); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+.approval-summary { margin: 12px 0 8px; font-size: 13px; overflow-wrap: anywhere; }
+.approval-meta { margin: 5px 0; overflow-wrap: anywhere; }
+.approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 @media (max-width: 700px) {
   .app { padding: 8px 24px 44px; }
   .topbar { max-width: none; padding: 0; }
@@ -146,6 +172,9 @@ footer { display: flex; flex-wrap: wrap; gap: 6px; padding: 24px 2px 5px; color:
   .owner { min-height: 96px; padding: 12px; }
   .owner-count { font-size: 22px; }
   .tasks-section { margin-top: 30px; }
+  .login-view { margin-top: 48px; padding: 0 12px; }
+  .login-card { padding: 23px; }
+  .approval-panel { padding: 12px; }
 }
 @media (max-width: 600px) {
   .app { padding: 8px 16px 32px; }

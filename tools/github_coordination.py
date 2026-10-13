@@ -31,6 +31,7 @@ except ImportError:  # Support direct execution from the tools directory.
 
 DEFAULT_API_BASE = "https://api.github.com"
 DEFAULT_MAX_PAGES = 3
+DEFAULT_TASK_AUTHOR_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
 DEFAULT_MAX_BODY_CHARS = 6000
 DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 DEFAULT_TIMEOUT = 20.0
@@ -508,6 +509,7 @@ class Monitor(object):
         max_pages=DEFAULT_MAX_PAGES,
         main_branch="main",
         authorized_handoff_users=(),
+        intake_author_associations=DEFAULT_TASK_AUTHOR_ASSOCIATIONS,
     ):
         self.api = api
         self.repository = repository
@@ -519,6 +521,11 @@ class Monitor(object):
         self.authorized_handoff_users = tuple(
             sorted(set(clean_text(user, 120) for user in authorized_handoff_users if clean_text(user, 120)))
         )
+        self.intake_author_associations = tuple(sorted(set(
+            clean_text(item, 40).strip().upper()
+            for item in intake_author_associations
+            if clean_text(item, 40).strip().upper() in DEFAULT_TASK_AUTHOR_ASSOCIATIONS
+        )))
         self.warnings = []
 
     def _path(self, suffix):
@@ -581,6 +588,13 @@ class Monitor(object):
                         tasks.add(int(issue.get("number")))
                     except (TypeError, ValueError):
                         self.warnings.append("ignored labeled issue with invalid number")
+                    continue
+                author_association = clean_text(issue.get("author_association") or "", 40).strip().upper()
+                if author_association in self.intake_author_associations:
+                    try:
+                        tasks.add(int(issue.get("number")))
+                    except (TypeError, ValueError):
+                        self.warnings.append("ignored trusted-author issue with invalid number")
                     continue
                 body = str(issue.get("body") or "")
                 issue_links, _ = linked_references(body, self.repository)
@@ -742,6 +756,22 @@ class Monitor(object):
         standard_target, standard_target_verified = parse_standard_task_target(
             issue.get("body") or "", self.repository, self.task_label, issue.get("labels", [])
         )
+        target_source = "standard_task" if standard_target_verified else "unknown"
+        if not standard_target_verified:
+            association = clean_text(issue.get("author_association") or "", 40).strip().upper()
+            labels = {
+                clean_text(item.get("name") if isinstance(item, dict) else item, 100).strip().lower()
+                for item in (issue.get("labels") if isinstance(issue.get("labels"), list) else [])
+            }
+            routes = {"server-task": "server", "computer-task": "computer", "mobile-task": "mobile"}
+            selected = [routes[label] for label in routes if label in labels]
+            if association in self.intake_author_associations:
+                if len(selected) <= 1:
+                    standard_target = selected[0] if selected else "server"
+                    standard_target_verified = True
+                    target_source = "trusted_repository_author" + ("_label" if selected else "")
+                else:
+                    self.warnings.append("issue has conflicting task target labels: #%d" % number)
         return {
             "repository": self.repository,
             "issue_ref": "%s#%d" % (self.repository, number),
@@ -757,7 +787,7 @@ class Monitor(object):
             "next_owner": verified_fields.get("next_owner", "unknown"),
             "target": standard_target or "unknown",
             "target_verified": standard_target_verified,
-            "target_source": "standard_task" if standard_target_verified else "unknown",
+            "target_source": target_source,
             "handoff_verified": latest_verified,
             "unverified_fields": unverified_fields,
             "unverified_claims": unverified_claims,
@@ -772,13 +802,16 @@ class Monitor(object):
 
     def collect(self):
         self.warnings = []
-        coordination, coordination_comments = self._issue_bundle(self.coordination_issue)
-        if not isinstance(coordination, dict):
+        if self.coordination_issue > 0:
+            coordination, coordination_comments = self._issue_bundle(self.coordination_issue)
+        else:
+            coordination, coordination_comments = None, []
+        if self.coordination_issue > 0 and not isinstance(coordination, dict):
             detail = self.warnings[-1] if self.warnings else "no response"
             raise CoordinationError(
                 "coordination Issue #%d could not be read: %s" % (self.coordination_issue, detail)
             )
-        coordination_text = str(coordination.get("body") or "")
+        coordination_text = str(coordination.get("body") or "") if coordination else ""
         coordination_text += "\n" + "\n".join(
             str(comment.get("body") or "")
             for comment in coordination_comments
@@ -786,11 +819,11 @@ class Monitor(object):
         )
         task_numbers = self._discover_task_numbers(coordination_text)
         all_pulls = self._list_pulls()
-        coordination_pull_numbers = self._discover_pull_numbers(coordination_text, self.coordination_issue, all_pulls)
+        coordination_pull_numbers = self._discover_pull_numbers(coordination_text, self.coordination_issue, all_pulls) if coordination else []
         current_main_sha = self._current_main_sha()
 
         tasks = []
-        coordination_ref = "%s#%d" % (self.repository, self.coordination_issue)
+        coordination_ref = "%s#%d" % (self.repository, self.coordination_issue) if self.coordination_issue else "trusted_collaborator_issues"
         collected_comments = _comments_with_source(coordination_comments, coordination_ref)
         pull_numbers = set(coordination_pull_numbers)
         for number in task_numbers:
@@ -812,20 +845,21 @@ class Monitor(object):
 
         pull_summaries = [self._pull_summary(number) for number in sorted(pull_numbers)]
         event_keys = [
-            "issue:%d:%s" % (self.coordination_issue, coordination.get("updated_at") or "unknown"),
             "main:%s:%s" % (self.main_branch, current_main_sha),
         ]
+        if coordination:
+            event_keys.append("issue:%d:%s" % (self.coordination_issue, coordination.get("updated_at") or "unknown"))
         event_keys.extend("issue:%d:%s" % (task["issue"], task["updated_at"]) for task in tasks)
         event_keys.extend("pull:%d:%s" % (pull["number"], pull["head_sha"]) for pull in pull_summaries)
         return {
             "schema_version": 2,
             "generated_at": utc_now(),
             "repository": self.repository,
-            "coordination_ref": "%s#%d" % (self.repository, self.coordination_issue),
+            "coordination_ref": "%s#%d" % (self.repository, self.coordination_issue) if self.coordination_issue else "trusted_collaborator_issues",
             "coordination_issue": self.coordination_issue,
             "main_branch": self.main_branch,
             "current_main_sha": current_main_sha,
-            "coordination_state": clean_text(coordination.get("state") or "unknown", 40),
+            "coordination_state": clean_text(coordination.get("state") or "unknown", 40) if coordination else "not_configured",
             "tasks": sorted(tasks, key=lambda item: item["issue"]),
             "pull_requests": pull_summaries,
             "event_keys": event_keys,
@@ -938,6 +972,14 @@ def normalize_repository_specs(values):
         spec["task_label"] = clean_text(spec.get("task_label") or "", 100).strip()
         spec["main_branch"] = spec.get("main_branch", "main")
         spec["authorized_handoff_users"] = spec.get("authorized_handoff_users", [])
+        associations = spec.get("intake_author_associations", list(DEFAULT_TASK_AUTHOR_ASSOCIATIONS))
+        if not isinstance(associations, list):
+            raise CoordinationError("intake_author_associations must be a list")
+        spec["intake_author_associations"] = [
+            clean_text(item, 40).strip().upper()
+            for item in associations
+            if clean_text(item, 40).strip().upper() in DEFAULT_TASK_AUTHOR_ASSOCIATIONS
+        ]
         specs.append(spec)
     return specs
 
@@ -1002,6 +1044,7 @@ def build_monitor(values):
                 max_pages=int(spec.get("max_pages", DEFAULT_MAX_PAGES)),
                 main_branch=spec.get("main_branch", "main"),
                 authorized_handoff_users=spec.get("authorized_handoff_users", []),
+                intake_author_associations=spec.get("intake_author_associations", DEFAULT_TASK_AUTHOR_ASSOCIATIONS),
             )
         )
     return (MultiRepositoryMonitor(monitors) if len(monitors) > 1 else monitors[0]), specs
